@@ -325,11 +325,14 @@ class AmazonEnrichmentService:
     Returns an EnrichedProduct or None if no match found.
     """
 
+    # Keys that mean "not configured" — skip Keepa and go straight to scraping
+    _PLACEHOLDER_KEYS = {"your_keepa_api_key_here", ""}
+
     def __init__(self) -> None:
         self._keepa: Optional[KeepaClient] = None
         self._scrape = AmazonScrapeFallback()
 
-        if settings.keepa_api_key:
+        if settings.keepa_api_key not in self._PLACEHOLDER_KEYS:
             self._keepa = KeepaClient(settings.keepa_api_key)
 
     async def close(self) -> None:
@@ -340,21 +343,28 @@ class AmazonEnrichmentService:
     async def enrich(self, deal: Deal) -> Optional[EnrichedProduct]:
         """
         Find the best Amazon match for this deal and return enrichment data.
+        Tries Keepa first (if configured), then falls back to scraping.
         """
         search_title = self._clean_title_for_search(deal.title)
         logger.info("enriching_deal", deal_id=deal.id, title=search_title[:60])
 
+        result: Optional[EnrichedProduct] = None
+
         if self._keepa:
-            return await self._enrich_via_keepa(search_title, deal)
-        else:
-            return await self._enrich_via_scrape(search_title, deal)
+            result = await self._enrich_via_keepa(search_title, deal)
+
+        # Always fall back to scraping if Keepa isn't configured or finds nothing
+        if result is None:
+            result = await self._enrich_via_scrape(search_title, deal)
+
+        return result
 
     async def _enrich_via_keepa(
         self, title: str, deal: Deal
     ) -> Optional[EnrichedProduct]:
         asin = await self._keepa.search_by_title(title)
         if not asin:
-            logger.info("keepa_no_match", deal_id=deal.id)
+            logger.info("keepa_no_match_falling_back", deal_id=deal.id)
             return None
 
         raw = await self._keepa.get_product(asin)
