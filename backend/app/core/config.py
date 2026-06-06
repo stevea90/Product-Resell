@@ -3,9 +3,8 @@ Central configuration — all settings loaded from environment variables.
 Pydantic-settings validates types at startup so misconfiguration fails fast.
 """
 from functools import lru_cache
-from typing import Any, List
+from typing import List
 
-from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,14 +20,12 @@ class Settings(BaseSettings):
     environment: str = "development"
     secret_key: str = "change_me"
     log_level: str = "INFO"
-    cors_origins: List[str] = Field(default=["http://localhost:3000"])
+    # Stored as comma-separated string to avoid pydantic-settings v2 JSON parsing
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def parse_cors_origins(cls, v: Any) -> List[str]:
-        if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
-        return v
+    @property
+    def cors_origins_list(self) -> List[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     # ── Database ──────────────────────────────────────────
     database_url: str
