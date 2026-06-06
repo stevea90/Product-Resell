@@ -445,26 +445,48 @@ class AmazonEnrichmentService:
 
         product = self._keepa.parse_keepa_product(raw)
 
-        # If we searched by model number, reject the result if the model doesn't
-        # appear in the returned product title — catches Keepa returning a wrong match.
+        # Validate the match is plausible — catches model-number mismatches
+        # (e.g. "LG OLED65B56LA" returning a different LG model) and product
+        # type mismatches (e.g. "angle grinder" returning "impact drill").
+        model_ok = True
         if model_term and product.title:
             model_number = model_term.split()[-1].upper()
             if model_number not in product.title.upper():
+                model_ok = False
                 logger.warning(
                     "keepa_model_mismatch",
                     deal_id=deal.id,
                     searched=model_term,
                     returned=product.title[:80],
                 )
-                # Try broad title search as a second chance
+
+        plausible = self._match_is_plausible(title, product.title or "")
+        if not model_ok or not plausible:
+            logger.warning(
+                "keepa_match_rejected",
+                deal_id=deal.id,
+                model_ok=model_ok,
+                plausible=plausible,
+                returned=product.title[:80] if product.title else None,
+            )
+            # One retry with the broad title before giving up
+            if model_term:
                 asin2 = await self._keepa.search_by_title(title)
                 if asin2 and asin2 != asin:
                     raw2 = await self._keepa.get_product(asin2)
                     if raw2:
-                        product = self._keepa.parse_keepa_product(raw2)
-                        asin = asin2
+                        product2 = self._keepa.parse_keepa_product(raw2)
+                        if self._match_is_plausible(title, product2.title or ""):
+                            product, asin = product2, asin2
+                            logger.info("keepa_retry_succeeded", deal_id=deal.id, asin=asin)
+                        else:
+                            return None
+                    else:
+                        return None
                 else:
-                    return None  # Give up; scrape fallback will try next
+                    return None
+            else:
+                return None
 
         logger.info("keepa_enriched", deal_id=deal.id, asin=asin, price=product.current_price)
         return product
@@ -567,11 +589,22 @@ class AmazonEnrichmentService:
         If the title starts with Brand + ModelNumber, return 'Brand ModelNumber'
         for a precise Keepa search rather than the full noisy title.
 
-        Matches patterns like:
+        Matches genuine electronics model numbers like:
           "LG OLED65B56LA ..."   → "LG OLED65B56LA"
           "LG 27G610A-B ..."     → "LG 27G610A-B"
           "Samsung QE65S95D ..." → "Samsung QE65S95D"
+
+        Explicitly does NOT match product specifications that look like model
+        numbers: "750W", "115mm", "240V", "200Hz", "64GB" etc.
+        These are digits followed by a short unit suffix — not model numbers.
         """
+        # Specification pattern: digits (optional decimal) + short unit suffix
+        # e.g. "750W", "115mm", "240V", "200Hz", "64GB", "5400mAh"
+        _SPEC_RE = re.compile(
+            r'^\d+(?:\.\d+)?(?:W|V|mm|cm|m|Hz|GHz|MHz|GB|TB|MB|KB|mAh|Ah|kg|g|inch|in|")$',
+            re.IGNORECASE,
+        )
+
         m = re.match(
             r'^([\w]+(?:\s+[\w]+)?)\s+([A-Z0-9]{2,}[-/]?[A-Z0-9]{2,})\b',
             title,
@@ -579,10 +612,54 @@ class AmazonEnrichmentService:
         )
         if m:
             model = m.group(2)
-            # Must contain at least one digit — distinguishes model numbers from words
-            if re.search(r'\d', model):
-                return f"{m.group(1)} {model}"
+            # Must contain at least one digit
+            if not re.search(r'\d', model):
+                return None
+            # Reject pure specifications (e.g. "750W", "115mm")
+            if _SPEC_RE.match(model):
+                return None
+            # Reject simple number+short-suffix patterns even if multi-char
+            # e.g. "750-115" is a power rating range, not a model code
+            # A real model number mixes letters INTO the numeric sequence
+            # Good: "OLED65B56LA", "27G610A", "QE65S95D"
+            # Bad:  "750W", "240V", "750-115" (pure numeric with separators)
+            if re.match(r'^\d+[-/]\d+$', model):  # "750-115" style
+                return None
+            return f"{m.group(1)} {model}"
         return None
+
+    @staticmethod
+    def _match_is_plausible(deal_title: str, product_title: str) -> bool:
+        """
+        Sanity-check that the returned Amazon product is the same type of thing
+        as the deal. Catches gross mismatches like 'angle grinder' → 'impact drill'.
+
+        Extracts meaningful words (5+ chars, not specs) from both titles and
+        requires at least 2 to overlap, OR that the brand matches and one
+        key product-type word overlaps.
+        """
+        if not product_title:
+            return True  # Can't validate; assume ok
+
+        _STOP = {
+            'with', 'free', 'black', 'white', 'silver', 'edition', 'model',
+            'series', 'version', 'smart', 'ultra', 'super', 'mini', 'plus',
+            'inch', 'year', 'warranty', 'delivery',
+        }
+
+        def key_words(text: str) -> set:
+            words = re.findall(r'\b[a-zA-Z]{5,}\b', text.lower())
+            return {w for w in words if w not in _STOP}
+
+        deal_words = key_words(deal_title)
+        prod_words = key_words(product_title)
+
+        if not deal_words or not prod_words:
+            return True
+
+        overlap = deal_words & prod_words
+        # Require at least 2 significant words in common
+        return len(overlap) >= 2
 
 
 # ── Utility functions ─────────────────────────────────────────────────────────
