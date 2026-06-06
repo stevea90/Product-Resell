@@ -22,6 +22,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
 
+# Tells SQLAlchemy to use enum .value (lowercase) not .name (uppercase)
+# when reading/writing to the native PostgreSQL enum type.
+_use_values = lambda obj: [e.value for e in obj]  # noqa: E731
+
 
 class DealSource(str, enum.Enum):
     HOTUKDEALS = "hotukdeals"
@@ -40,24 +44,25 @@ class DealCategory(str, enum.Enum):
 
 
 class DealStatus(str, enum.Enum):
-    PENDING = "pending"          # Scraped, not yet enriched
-    ENRICHING = "enriching"      # Amazon lookup in progress
-    SCORED = "scored"            # Full analysis complete
-    IGNORED = "ignored"          # Below threshold, filtered out
-    EXPIRED = "expired"          # Deal no longer active
+    PENDING = "pending"
+    ENRICHING = "enriching"
+    SCORED = "scored"
+    IGNORED = "ignored"
+    EXPIRED = "expired"
 
 
 class Deal(Base):
     __tablename__ = "deals"
     __table_args__ = (
-        # Prevent re-inserting the same deal URL multiple times
         UniqueConstraint("source_url", name="uq_deals_source_url"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
 
     # ── Source metadata ───────────────────────────────────────
-    source: Mapped[DealSource] = mapped_column(Enum(DealSource), nullable=False, index=True)
+    source: Mapped[DealSource] = mapped_column(
+        Enum(DealSource, values_callable=_use_values), nullable=False, index=True
+    )
     source_id: Mapped[Optional[str]] = mapped_column(String(255), index=True)
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
 
@@ -68,7 +73,7 @@ class Deal(Base):
     product_url: Mapped[Optional[str]] = mapped_column(Text)
     image_url: Mapped[Optional[str]] = mapped_column(Text)
     category: Mapped[DealCategory] = mapped_column(
-        Enum(DealCategory), default=DealCategory.OTHER, index=True
+        Enum(DealCategory, values_callable=_use_values), default=DealCategory.OTHER, index=True
     )
 
     # ── Pricing ───────────────────────────────────────────────
@@ -84,7 +89,7 @@ class Deal(Base):
 
     # ── State ─────────────────────────────────────────────────
     status: Mapped[DealStatus] = mapped_column(
-        Enum(DealStatus), default=DealStatus.PENDING, index=True
+        Enum(DealStatus, values_callable=_use_values), default=DealStatus.PENDING, index=True
     )
     is_expired: Mapped[bool] = mapped_column(Boolean, default=False)
 
