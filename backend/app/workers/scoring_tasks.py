@@ -22,11 +22,13 @@ logger = get_logger(__name__)
 
 
 def _run_async(coro):
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+    async def _with_cleanup():
+        try:
+            return await coro
+        finally:
+            from app.db.database import engine
+            await engine.dispose()
+    return asyncio.run(_with_cleanup())
 
 
 @celery_app.task(
