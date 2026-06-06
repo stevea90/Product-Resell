@@ -124,61 +124,82 @@ class KeepaClient:
     def parse_keepa_product(self, raw: dict) -> EnrichedProduct:
         """
         Convert Keepa's raw product dict into our EnrichedProduct structure.
-        Keepa stores prices in cents*10 (i.e. £12.99 → 1299).
+        Keepa stores prices in integer cents (£12.99 → 1299); -1 means N/A.
+
+        Keepa product object field reference (domain=2, UK):
+          stats.current  — array indexed by csv type: 0=Amazon, 1=New 3P, 7=BuyBox
+          stats.avg30/min30/max30/avg90/min90 — same indexing, 30/90-day windows
+          reviewCount    — top-level int
+          rating         — top-level int (47 → 4.7 stars)
+          salesRankReference — top-level int, primary category rank
+          buyBoxStats    — dict keyed by seller ID → gives seller count
+          fbaFees        — dict with pickAndPackFee
+          categoryTree   — list of {catId, name} dicts
+          packageWeight  — int, grams
         """
-        def keepa_price(val: Optional[int]) -> Optional[float]:
-            if val and val > 0:
+        def keepa_price(val) -> Optional[float]:
+            if val is not None and isinstance(val, (int, float)) and val > 0:
                 return round(val / 100, 2)
             return None
 
-        stats = raw.get("stats", {})
-        csv = raw.get("csv", [])  # price history arrays
+        stats = raw.get("stats") or {}
+        csv = raw.get("csv") or []
 
-        # Price history is in csv[1] (Amazon price) and csv[8] (new 3P)
-        current_price = keepa_price(raw.get("data", {}).get("currentPrice"))
-        if not current_price and csv:
-            # Last value in Amazon price history
-            amazon_prices = csv[1] if len(csv) > 1 else []
-            if amazon_prices:
-                val = amazon_prices[-1] if isinstance(amazon_prices[-1], int) else None
-                current_price = keepa_price(val)
+        # Current prices from stats.current array
+        current_arr = stats.get("current") or []
 
-        buy_box_price = keepa_price(raw.get("data", {}).get("buyBoxPrice"))
+        def from_current(idx: int) -> Optional[float]:
+            return keepa_price(current_arr[idx]) if len(current_arr) > idx else None
 
-        # 30-day and 90-day stats
-        lowest_30 = keepa_price(stats.get("avg30"))
-        highest_30 = keepa_price(stats.get("max30", [None])[0] if isinstance(stats.get("max30"), list) else None)
-        lowest_90 = keepa_price(stats.get("avg90"))
+        amazon_price = from_current(0)   # Amazon retail price
+        new_3p_price = from_current(1)   # Cheapest new 3P
+        buy_box_raw = from_current(7)    # Buy Box price
 
-        # Sales rank
-        sales_rank = raw.get("data", {}).get("salesRank")
-        categories = raw.get("categories", [])
-        rank_category = categories[0].get("name") if categories else None
+        current_price = amazon_price or buy_box_raw or new_3p_price
+        buy_box_price = buy_box_raw or current_price
 
-        # Sales estimation from rank (rough heuristic for toys/electronics UK)
-        estimated_monthly_sales = _estimate_monthly_sales_from_rank(
-            sales_rank, rank_category
-        )
+        # 30/90-day window stats (same array indexing as current)
+        def from_stats_arr(key: str, idx: int = 1) -> Optional[float]:
+            arr = stats.get(key) or []
+            return keepa_price(arr[idx]) if len(arr) > idx else None
 
-        # Reviews
-        review_count = raw.get("data", {}).get("reviewCount")
-        review_rating = raw.get("data", {}).get("reviewRating")
-        if review_rating:
-            review_rating = review_rating / 10  # Keepa stores as 42 for 4.2
+        lowest_30 = from_stats_arr("min30", 1)
+        highest_30 = from_stats_arr("max30", 1)
+        lowest_90 = from_stats_arr("min90", 1)
 
-        # Seller competition
-        buy_box_seller_count = raw.get("data", {}).get("buyBoxSellerCount")
-        is_amazon_selling = raw.get("data", {}).get("isAmazonSelling", False)
-        fba_seller_count = raw.get("data", {}).get("newOfferCount")
+        # Sales rank — top-level field in Keepa product object
+        sales_rank = raw.get("salesRankReference")
+        if sales_rank is not None and sales_rank < 0:
+            sales_rank = None
 
-        # FBA fees — Keepa provides fee breakdown in fbaFees field
-        fba_fees = raw.get("fbaFees", {})
+        # Category name from categoryTree
+        category_tree = raw.get("categoryTree") or []
+        rank_category = category_tree[0].get("name") if category_tree else None
+
+        # Reviews — both are top-level fields (not inside "data")
+        review_count = raw.get("reviewCount")
+        if review_count is not None and review_count < 0:
+            review_count = None
+
+        rating_raw = raw.get("rating")  # e.g. 47 = 4.7 stars
+        review_rating = round(rating_raw / 10, 1) if rating_raw and rating_raw > 0 else None
+
+        # Competition
+        is_amazon_selling = amazon_price is not None  # Amazon has a price = they're selling
+        buy_box_stats = raw.get("buyBoxStats") or {}
+        buy_box_seller_count = len(buy_box_stats) if buy_box_stats else None
+
+        # FBA fees
+        fba_fees = raw.get("fbaFees") or {}
         fba_fee = keepa_price(fba_fees.get("pickAndPackFee"))
-        referral_pct = raw.get("data", {}).get("referralFeePercent")
-        referral_pct_float = (referral_pct / 100) if referral_pct else None
-        referral_fee = None
-        if current_price and referral_pct_float:
-            referral_fee = round(current_price * referral_pct_float, 2)
+
+        # Weight
+        weight_g = raw.get("packageWeight")
+        weight_kg = round(weight_g / 1000, 3) if weight_g and weight_g > 0 else None
+
+        # Referral fee — Keepa doesn't expose this directly; use category default
+        referral_fee_percent = settings.amazon_referral_fee_percent
+        referral_fee = round(current_price * referral_fee_percent, 2) if current_price else None
 
         asin = raw.get("asin", "")
         return EnrichedProduct(
@@ -187,22 +208,22 @@ class KeepaClient:
             title=raw.get("title"),
             brand=raw.get("brand"),
             current_price=current_price,
-            buy_box_price=buy_box_price or current_price,
+            buy_box_price=buy_box_price,
             lowest_price_30d=lowest_30,
             highest_price_30d=highest_30,
             lowest_price_90d=lowest_90,
             buy_box_seller_count=buy_box_seller_count,
-            is_amazon_selling=bool(is_amazon_selling),
-            fba_seller_count=fba_seller_count,
+            is_amazon_selling=is_amazon_selling,
+            fba_seller_count=None,
             sales_rank=sales_rank,
             sales_rank_category=rank_category,
-            estimated_monthly_sales=estimated_monthly_sales,
+            estimated_monthly_sales=_estimate_monthly_sales_from_rank(sales_rank, rank_category),
             review_count=review_count,
             review_rating=review_rating,
             fba_fee_estimate=fba_fee or settings.fba_fulfilment_estimate_gbp,
             referral_fee_estimate=referral_fee,
-            referral_fee_percent=referral_pct_float or settings.amazon_referral_fee_percent,
-            weight_kg=None,
+            referral_fee_percent=referral_fee_percent,
+            weight_kg=weight_kg,
             data_source="keepa",
             match_confidence=0.9,
         )
@@ -402,7 +423,18 @@ class AmazonEnrichmentService:
     async def _enrich_via_keepa(
         self, title: str, deal: Deal
     ) -> Optional[EnrichedProduct]:
-        asin = await self._keepa.search_by_title(title)
+        # Prefer a model-number search for electronics ("LG OLED65B56LA")
+        # to avoid Keepa matching a superficially similar but wrong product.
+        model_term = self._model_search_term(title)
+        asin = None
+
+        if model_term:
+            asin = await self._keepa.search_by_title(model_term)
+            logger.info("keepa_model_search", deal_id=deal.id, term=model_term, asin=asin)
+
+        if not asin:
+            asin = await self._keepa.search_by_title(title)
+
         if not asin:
             logger.info("keepa_no_match_falling_back", deal_id=deal.id)
             return None
@@ -412,6 +444,28 @@ class AmazonEnrichmentService:
             return None
 
         product = self._keepa.parse_keepa_product(raw)
+
+        # If we searched by model number, reject the result if the model doesn't
+        # appear in the returned product title — catches Keepa returning a wrong match.
+        if model_term and product.title:
+            model_number = model_term.split()[-1].upper()
+            if model_number not in product.title.upper():
+                logger.warning(
+                    "keepa_model_mismatch",
+                    deal_id=deal.id,
+                    searched=model_term,
+                    returned=product.title[:80],
+                )
+                # Try broad title search as a second chance
+                asin2 = await self._keepa.search_by_title(title)
+                if asin2 and asin2 != asin:
+                    raw2 = await self._keepa.get_product(asin2)
+                    if raw2:
+                        product = self._keepa.parse_keepa_product(raw2)
+                        asin = asin2
+                else:
+                    return None  # Give up; scrape fallback will try next
+
         logger.info("keepa_enriched", deal_id=deal.id, asin=asin, price=product.current_price)
         return product
 
@@ -469,11 +523,66 @@ class AmazonEnrichmentService:
 
     @staticmethod
     def _clean_title_for_search(title: str) -> str:
-        """Strip deal-specific noise (% off, coupon codes, etc.) for cleaner search."""
-        title = re.sub(r"\d+%\s*off", "", title, flags=re.IGNORECASE)
-        title = re.sub(r"\bvoucher\b|\bcode\b|\bdeal\b|\bsale\b", "", title, flags=re.IGNORECASE)
-        title = re.sub(r"\s+", " ", title).strip()
-        return title[:100]
+        """
+        Strip deal-site noise from a title, leaving just the core product name.
+
+        HotUKDeals titles often look like:
+          "LG OLED65B56LA (2025) OLED 4K TV - 5 Year Warranty With Code + a £100 Gift Card My JL Members"
+        We want:
+          "LG OLED65B56LA OLED 4K TV"
+        """
+        # Cut everything from these deal-noise separators onward
+        _CUTOFF_RE = re.compile(
+            r"(\s+-\s+Free\b"
+            r"|\s+With\s+Code\b"
+            r"|\s+\+\s+(?:a\s+)?£\d"
+            r"|\s+With\s+(?:BLC|HSD|EPP|Totum|Unidays)\b"
+            r"|\s+My\s+JL\b"
+            r"|\s*\|\s"
+            r"|,\s*\d+\s*Year\s+Warranty"
+            r"|\s+-\s+(?:Save|Was\s+£|Sold\s+By)"
+            r"|\s+-\s+With\s+)"
+            r".*$",
+            re.IGNORECASE | re.DOTALL,
+        )
+        title = _CUTOFF_RE.sub("", title)
+
+        # Strip remaining noise phrases
+        _NOISE = [
+            r"\b\d+\s*Year\s+Warranty\b",
+            r"\bFree\s+(?:C&C|Click\s*&?\s*Collect|Delivery|P&P|Shipping)\b",
+            r"\bWith\s+(?:Code|Voucher)\b",
+            r"£[\d,]+(?:\.\d+)?\s*(?:Gift\s*Card|Cashback)\b",
+            r"\d+%\s*off\b",
+            r"\b(?:voucher|coupon|deal|sale)\b",
+        ]
+        for pattern in _NOISE:
+            title = re.sub(pattern, "", title, flags=re.IGNORECASE)
+
+        return re.sub(r"\s+", " ", title).strip().rstrip(",")[:100]
+
+    @staticmethod
+    def _model_search_term(title: str) -> Optional[str]:
+        """
+        If the title starts with Brand + ModelNumber, return 'Brand ModelNumber'
+        for a precise Keepa search rather than the full noisy title.
+
+        Matches patterns like:
+          "LG OLED65B56LA ..."   → "LG OLED65B56LA"
+          "LG 27G610A-B ..."     → "LG 27G610A-B"
+          "Samsung QE65S95D ..." → "Samsung QE65S95D"
+        """
+        m = re.match(
+            r'^([\w]+(?:\s+[\w]+)?)\s+([A-Z0-9]{2,}[-/]?[A-Z0-9]{2,})\b',
+            title,
+            re.IGNORECASE,
+        )
+        if m:
+            model = m.group(2)
+            # Must contain at least one digit — distinguishes model numbers from words
+            if re.search(r'\d', model):
+                return f"{m.group(1)} {model}"
+        return None
 
 
 # ── Utility functions ─────────────────────────────────────────────────────────
