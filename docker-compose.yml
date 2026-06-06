@@ -1,0 +1,126 @@
+version: "3.9"
+
+# ============================================================
+# ArbitrageAI — Docker Compose
+# Starts: postgres, redis, backend API, celery workers,
+#         celery beat (scheduler), flower, next.js frontend
+# ============================================================
+
+x-backend-common: &backend-common
+  build:
+    context: ./backend
+    dockerfile: Dockerfile
+  env_file: .env
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  volumes:
+    - ./backend:/app
+  networks:
+    - arbitrage_net
+
+services:
+  # ── Database ──────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - arbitrage_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Cache / Queue ─────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - arbitrage_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── FastAPI Backend ───────────────────────────────────────
+  backend:
+    <<: *backend-common
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  # ── Celery Worker (scraping + enrichment) ─────────────────
+  worker:
+    <<: *backend-common
+    command: >
+      celery -A app.workers.celery_app worker
+             --loglevel=info
+             --queues=scraping,enrichment,scoring
+             --concurrency=4
+    restart: unless-stopped
+
+  # ── Celery Beat (scheduler) ───────────────────────────────
+  beat:
+    <<: *backend-common
+    command: >
+      celery -A app.workers.celery_app beat
+             --loglevel=info
+             --scheduler celery.beat:PersistentScheduler
+    restart: unless-stopped
+
+  # ── Flower (task monitor UI) ──────────────────────────────
+  flower:
+    <<: *backend-common
+    command: >
+      celery -A app.workers.celery_app flower
+             --port=5555
+             --url_prefix=flower
+    ports:
+      - "5555:5555"
+    restart: unless-stopped
+
+  # ── Next.js Frontend ──────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    networks:
+      - arbitrage_net
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  arbitrage_net:
+    driver: bridge
