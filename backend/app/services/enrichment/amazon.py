@@ -227,8 +227,22 @@ class AmazonScrapeFallback:
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
                     "Chrome/124.0.0.0 Safari/537.36"
                 ),
+                "Accept": (
+                    "text/html,application/xhtml+xml,application/xml;"
+                    "q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
+                ),
                 "Accept-Language": "en-GB,en;q=0.9",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+                "Cache-Control": "max-age=0",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+                "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+                "sec-ch-ua-mobile": "?0",
+                "sec-ch-ua-platform": '"Windows"',
             },
             follow_redirects=True,
             timeout=20.0,
@@ -238,19 +252,45 @@ class AmazonScrapeFallback:
         await self._client.aclose()
 
     async def search_asin(self, title: str) -> Optional[str]:
-        """Search Amazon UK for the title, return first ASIN found."""
+        """Search Amazon UK for the title, return first non-empty ASIN."""
         try:
             resp = await self._client.get(
                 self.SEARCH_URL,
                 params={"k": title[:100], "ref": "nb_sb_noss"},
             )
             resp.raise_for_status()
-            sel = Selector(text=resp.text)
+            html = resp.text
 
-            # ASIN is in data-asin attribute of result items
-            asin = sel.css("[data-asin]::attr(data-asin)").get()
-            if asin and len(asin) == 10:
-                return asin
+            # Detect bot-detection / CAPTCHA pages served with 200 OK
+            if "data-asin" not in html:
+                if "captcha" in html.lower() or "robot" in html.lower():
+                    logger.warning("amazon_captcha_detected", title=title[:40])
+                else:
+                    logger.warning(
+                        "amazon_search_no_data_asin",
+                        html_len=len(html),
+                        title=title[:40],
+                    )
+                # Fall through to regex fallback below
+
+            sel = Selector(text=html)
+
+            # Try multiple CSS selectors for different Amazon page layouts
+            _css_selectors = [
+                "div[data-asin][data-asin!='']::attr(data-asin)",
+                "[data-component-type='s-search-result']::attr(data-asin)",
+                ".s-result-item[data-asin][data-asin!='']::attr(data-asin)",
+                "[data-asin]::attr(data-asin)",
+            ]
+            for css in _css_selectors:
+                asin = sel.css(css).get()
+                if asin and len(asin) == 10:
+                    return asin
+
+            # Last-resort: extract ASIN from embedded JSON in the page
+            for match in re.finditer(r'"asin"\s*:\s*"([A-Z0-9]{10})"', html):
+                return match.group(1)
+
         except Exception as exc:
             logger.warning("amazon_search_error", error=str(exc))
         return None
@@ -381,12 +421,51 @@ class AmazonEnrichmentService:
         asin = await self._scrape.search_asin(title)
         if not asin:
             logger.info("scrape_no_match", deal_id=deal.id)
+            # When MOCK_ENRICHMENT_FALLBACK is enabled, return synthetic data
+            # so the scoring pipeline can be validated without live Amazon access
+            if settings.mock_enrichment_fallback:
+                logger.info("using_synthetic_enrichment", deal_id=deal.id)
+                return self._create_synthetic_enrichment(deal)
             return None
 
         product = await self._scrape.fetch_product(asin)
         if product:
             logger.info("scrape_enriched", deal_id=deal.id, asin=asin)
         return product
+
+    def _create_synthetic_enrichment(self, deal: Deal) -> EnrichedProduct:
+        """
+        Generate synthetic enrichment data when both Keepa and scraping are unavailable.
+        Estimates Amazon price at a modest markup over the deal price.
+        Set MOCK_ENRICHMENT_FALLBACK=true in .env to enable.
+        """
+        deal_price = deal.deal_price or 0
+        amazon_price = round(deal_price * 1.4, 2) if deal_price else 25.0
+        return EnrichedProduct(
+            asin=None,
+            amazon_url=None,
+            title=deal.title,
+            brand=None,
+            current_price=amazon_price,
+            buy_box_price=amazon_price,
+            lowest_price_30d=round(amazon_price * 0.95, 2),
+            highest_price_30d=round(amazon_price * 1.1, 2),
+            lowest_price_90d=round(amazon_price * 0.92, 2),
+            buy_box_seller_count=4,
+            is_amazon_selling=False,
+            fba_seller_count=3,
+            sales_rank=45000,
+            sales_rank_category="Toys & Games",
+            estimated_monthly_sales=_estimate_monthly_sales_from_rank(45000, "Toys & Games"),
+            review_count=87,
+            review_rating=4.3,
+            fba_fee_estimate=settings.fba_fulfilment_estimate_gbp,
+            referral_fee_estimate=round(amazon_price * settings.amazon_referral_fee_percent, 2),
+            referral_fee_percent=settings.amazon_referral_fee_percent,
+            weight_kg=0.5,
+            data_source="synthetic",
+            match_confidence=0.25,
+        )
 
     @staticmethod
     def _clean_title_for_search(title: str) -> str:

@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     alert_score_threshold: int = 75
     min_roi_percent: float = 20.0
 
+    # ── Dev / Testing ─────────────────────────────────────
+    # When true, use synthetic Amazon data when scraping fails (no Keepa key needed)
+    mock_enrichment_fallback: bool = False
+
     # ── Profitability assumptions ─────────────────────────
     vat_rate: float = 0.20
     fba_fulfilment_estimate_gbp: float = 3.50
