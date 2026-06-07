@@ -25,6 +25,8 @@ pydantic==2.7.1
 pydantic-settings==2.2.1
 python-dotenv==1.0.1
 pandas==2.2.2
+numpy==1.26.4
+pytrends==4.9.2
 
 # ── AI / LLM ───────────────────────────────────────────────
 anthropic==0.28.0

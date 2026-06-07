@@ -23,6 +23,7 @@ celery_app = Celery(
         "app.workers.scraping_tasks",
         "app.workers.enrichment_tasks",
         "app.workers.scoring_tasks",
+        "app.workers.trend_tasks",
     ],
 )
 
@@ -39,6 +40,7 @@ celery_app.conf.update(
         "app.workers.scraping_tasks.*": {"queue": "scraping"},
         "app.workers.enrichment_tasks.*": {"queue": "enrichment"},
         "app.workers.scoring_tasks.*": {"queue": "scoring"},
+        "app.workers.trend_tasks.*": {"queue": "enrichment"},
     },
     beat_schedule={
         "scrape-all-sources": {
@@ -49,6 +51,16 @@ celery_app.conf.update(
         "enrich-pending-deals": {
             "task": "app.workers.enrichment_tasks.enrich_pending_deals_task",
             "schedule": 600,  # Every 10 minutes
+            "options": {"queue": "enrichment"},
+        },
+        "ingest-daily-metrics": {
+            "task": "app.workers.trend_tasks.ingest_daily_metrics_task",
+            "schedule": crontab(hour=2, minute=0),  # 2am daily
+            "options": {"queue": "enrichment"},
+        },
+        "detect-anomalies": {
+            "task": "app.workers.trend_tasks.detect_anomalies_task",
+            "schedule": crontab(minute=0),  # Every hour
             "options": {"queue": "enrichment"},
         },
     },
