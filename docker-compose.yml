@@ -94,7 +94,6 @@ services:
     command: >
       celery -A app.workers.celery_app flower
              --port=5555
-             --url_prefix=flower
     ports:
       - "5555:5555"
     restart: unless-stopped
