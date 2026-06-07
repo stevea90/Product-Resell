@@ -177,8 +177,11 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/scrape", status_code=202)
-async def trigger_scrape(source: str = "hotukdeals"):
+async def trigger_scrape(source: str = "all"):
     """Manually trigger a scrape run. Returns immediately (async task)."""
-    from app.workers.scraping_tasks import scrape_hotukdeals_task
-    task = scrape_hotukdeals_task.apply_async()
+    from app.workers.scraping_tasks import scrape_all_task, scrape_source_task
+    if source == "all":
+        task = scrape_all_task.apply_async()
+    else:
+        task = scrape_source_task.apply_async(args=[source])
     return {"task_id": task.id, "status": "queued", "source": source}

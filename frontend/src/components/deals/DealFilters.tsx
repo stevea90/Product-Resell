@@ -21,10 +21,19 @@ interface DealFiltersProps {
 
 const CATEGORIES = [
   { value: "", label: "All Categories" },
-  { value: "lego", label: "🧱 LEGO" },
-  { value: "gaming", label: "🎮 Gaming" },
-  { value: "toys", label: "🧸 Toys" },
-  { value: "electronics", label: "💻 Electronics" },
+  { value: "lego", label: "LEGO" },
+  { value: "gaming", label: "Gaming" },
+  { value: "toys", label: "Toys" },
+  { value: "electronics", label: "Electronics" },
+  { value: "home", label: "Home" },
+  { value: "beauty", label: "Beauty" },
+  { value: "sports", label: "Sports" },
+  { value: "fashion", label: "Fashion" },
+  { value: "garden", label: "Garden" },
+  { value: "health", label: "Health" },
+  { value: "pets", label: "Pets" },
+  { value: "books", label: "Books" },
+  { value: "other", label: "Other" },
 ];
 
 const SORT_OPTIONS: { value: SortBy; label: string }[] = [
@@ -41,7 +50,7 @@ export function DealFilters({ filters, onChange }: DealFiltersProps) {
   const handleScrape = async () => {
     setScraping(true);
     try {
-      await dealsApi.triggerScrape("hotukdeals");
+      await dealsApi.triggerScrape("all");
     } finally {
       setTimeout(() => setScraping(false), 3000);
     }

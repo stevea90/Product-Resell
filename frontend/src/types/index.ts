@@ -67,4 +67,4 @@ export interface StatsResponse {
 }
 
 export type SortBy = "score" | "roi" | "profit" | "date" | "hot_score";
-export type Category = "lego" | "gaming" | "toys" | "electronics" | "other";
+export type Category = "lego" | "gaming" | "toys" | "electronics" | "home" | "beauty" | "sports" | "fashion" | "garden" | "health" | "pets" | "books" | "other";
