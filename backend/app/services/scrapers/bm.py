@@ -5,7 +5,7 @@ Strategy:
   B&M's website uses a Magento-style HTML structure. We scrape the sale/offers
   landing page and follow category links. Products are in standard HTML cards.
 
-  Target: https://www.bmstores.co.uk/best-deals
+  Target: https://www.bmstores.co.uk/offers
 """
 import re
 from typing import List, Optional
@@ -20,8 +20,8 @@ logger = get_logger(__name__)
 
 BASE_URL = "https://www.bmstores.co.uk"
 DEALS_URLS = [
-    "https://www.bmstores.co.uk/best-deals",
-    "https://www.bmstores.co.uk/new-in",
+    "https://www.bmstores.co.uk/offers",
+    "https://www.bmstores.co.uk/whats-new",
 ]
 MAX_PAGES = 5
 

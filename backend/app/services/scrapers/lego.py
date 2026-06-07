@@ -22,7 +22,7 @@ from app.services.scrapers.utils import detect_category, parse_gbp_price
 
 logger = get_logger(__name__)
 
-SALE_PAGE_URL = "https://www.lego.com/en-gb/themes/sale"
+SALE_PAGE_URL = "https://www.lego.com/en-gb/categories/sales-and-deals"
 API_URL = "https://www.lego.com/api/graphql/ContentPage"
 BASE_PRODUCT_URL = "https://www.lego.com/en-gb/product"
 LOCALE = "en-GB"

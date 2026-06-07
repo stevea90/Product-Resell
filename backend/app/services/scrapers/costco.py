@@ -20,7 +20,7 @@ from app.services.scrapers.utils import detect_category, parse_gbp_price
 
 logger = get_logger(__name__)
 
-CLEARANCE_URL = "https://www.costco.co.uk/Clearance-Products/"
+CLEARANCE_URL = "https://www.costco.co.uk/offers"
 BASE_URL = "https://www.costco.co.uk"
 MAX_PAGES = 10
 

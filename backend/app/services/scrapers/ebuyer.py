@@ -19,7 +19,7 @@ from app.services.scrapers.utils import detect_category, parse_gbp_price
 
 logger = get_logger(__name__)
 
-DEALS_URL = "https://www.ebuyer.com/deals"
+DEALS_URL = "https://www.ebuyer.com/clearance"
 BASE_URL = "https://www.ebuyer.com"
 MAX_PAGES = 10
 

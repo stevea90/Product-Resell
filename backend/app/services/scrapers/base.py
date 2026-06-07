@@ -30,6 +30,21 @@ USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.4; rv:125.0) Gecko/20100101 Firefox/125.0",
 ]
 
+# Full browser headers — sending only User-Agent triggers 403 on most retail sites
+BROWSER_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "en-GB,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "DNT": "1",
+    "Cache-Control": "max-age=0",
+}
+
 
 @dataclass
 class ScrapedDeal:
@@ -90,7 +105,7 @@ class BaseScraper(ABC):
     def client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(
-                headers={"User-Agent": self._random_user_agent()},
+                headers={**BROWSER_HEADERS, "User-Agent": self._random_user_agent()},
                 timeout=httpx.Timeout(30.0, connect=10.0),
                 follow_redirects=True,
                 http2=True,
