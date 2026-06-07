@@ -6,6 +6,8 @@ import { useDeals } from "@/hooks/useDeals";
 import { DealCard } from "@/components/deals/DealCard";
 import { DealFilters } from "@/components/deals/DealFilters";
 import { StatsBar } from "@/components/layout/StatsBar";
+import { TrendingSection } from "@/components/trends/TrendingSection";
+import { AnomalyFeed } from "@/components/trends/AnomalyFeed";
 import type { SortBy } from "@/types";
 
 const DEFAULT_FILTERS = {
@@ -60,6 +62,15 @@ export default function Dashboard() {
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
         {/* Stats */}
         <StatsBar />
+
+        {/* Market Intelligence */}
+        <section className="bg-gray-50 rounded-2xl border border-gray-200 p-4 space-y-5">
+          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            Market Intelligence
+          </div>
+          <TrendingSection />
+          <AnomalyFeed />
+        </section>
 
         {/* Filters */}
         <DealFilters filters={filters} onChange={handleFiltersChange} />

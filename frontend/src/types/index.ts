@@ -68,3 +68,40 @@ export interface StatsResponse {
 
 export type SortBy = "score" | "roi" | "profit" | "date" | "hot_score";
 export type Category = "lego" | "gaming" | "toys" | "electronics" | "home" | "beauty" | "sports" | "fashion" | "garden" | "health" | "pets" | "books" | "other";
+
+// ── Trend types ──────────────────────────────────────────────────────────────
+
+export interface TrendingProduct {
+  asin: string;
+  product_title: string | null;
+  date: string;
+  demand_score: number;
+  trend_direction: "rising" | "spiking" | "stable" | "falling";
+  ma_7d: number | null;
+  ma_30d: number | null;
+  z_score: number | null;
+}
+
+export interface TrendingProductsResponse {
+  count: number;
+  products: TrendingProduct[];
+}
+
+export interface AnomalyItem {
+  id: number;
+  asin: string;
+  product_title: string | null;
+  detected_at: string;
+  signal_type: string;
+  z_score: number;
+  severity: "low" | "medium" | "high" | "critical";
+  description: string | null;
+  current_value: number | null;
+  baseline_value: number | null;
+  is_acknowledged: boolean;
+}
+
+export interface AnomalyFeedResponse {
+  total: number;
+  anomalies: AnomalyItem[];
+}

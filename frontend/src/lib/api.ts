@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { DealListResponse, StatsResponse, SortBy } from "@/types";
+import type { AnomalyFeedResponse, DealListResponse, StatsResponse, SortBy, TrendingProductsResponse } from "@/types";
 
 const api = axios.create({
   baseURL: "/api/v1",
@@ -30,6 +30,20 @@ export const dealsApi = {
 
   triggerScrape: async (source = "hotukdeals"): Promise<{ task_id: string }> => {
     const { data } = await api.post("/deals/scrape", null, { params: { source } });
+    return data;
+  },
+};
+
+export const trendsApi = {
+  trending: async (limit = 10): Promise<TrendingProductsResponse> => {
+    const { data } = await api.get<TrendingProductsResponse>("/trends/trending", { params: { limit } });
+    return data;
+  },
+
+  anomalies: async (severity?: string, limit = 10): Promise<AnomalyFeedResponse> => {
+    const { data } = await api.get<AnomalyFeedResponse>("/trends/anomalies", {
+      params: { ...(severity && { severity }), limit },
+    });
     return data;
   },
 };
