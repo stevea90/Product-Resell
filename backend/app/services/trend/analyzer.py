@@ -47,8 +47,12 @@ def _normalise_sales_rank(value: float) -> float:
 
 
 def _normalise_percentile(value: float, series: pd.Series) -> float:
-    """Score a value as its percentile within the historical series (0-100)."""
-    if series.empty or series.std() == 0:
+    """Score a value as its percentile within the historical series (0-100).
+    Requires at least 3 data points; returns 50 (neutral) when history is thin."""
+    if series.empty or len(series) < 3:
+        return 50.0
+    std = series.std()
+    if pd.isna(std) or std == 0:
         return 50.0
     rank = (series <= value).sum() / len(series) * 100
     return float(np.clip(rank, 0, 100))

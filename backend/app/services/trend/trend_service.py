@@ -317,11 +317,27 @@ class TrendService:
         return list(result.scalars().all()), total
 
     async def get_trending_products(self, limit: int = 20) -> list[ProductTrend]:
+        """Return rising/spiking products; falls back to top demand scores when
+        history is insufficient to detect direction."""
         today = date.today()
+        since = today - timedelta(days=2)
+
+        directional = (await self.db.execute(
+            select(ProductTrend)
+            .where(ProductTrend.date >= since)
+            .where(ProductTrend.trend_direction.in_(["rising", "spiking"]))
+            .order_by(ProductTrend.demand_score.desc().nullslast())
+            .limit(limit)
+        )).scalars().all()
+
+        if directional:
+            return list(directional)
+
+        # No directional data yet — return today's top demand scores instead
         result = await self.db.execute(
             select(ProductTrend)
-            .where(ProductTrend.date >= today - timedelta(days=2))
-            .where(ProductTrend.trend_direction.in_(["rising", "spiking"]))
+            .where(ProductTrend.date >= since)
+            .where(ProductTrend.demand_score > 0)
             .order_by(ProductTrend.demand_score.desc().nullslast())
             .limit(limit)
         )

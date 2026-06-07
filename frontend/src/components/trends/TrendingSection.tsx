@@ -83,14 +83,27 @@ function TrendCard({ product }: { product: TrendingProduct }) {
 export function TrendingSection() {
   const { data, isLoading } = useTrending(12);
 
+  const hasDirectional = data?.products.some(
+    (p) => p.trend_direction === "rising" || p.trend_direction === "spiking"
+  );
+  const sectionLabel = hasDirectional ? "Trending Products" : "Top Demand Today";
+  const countBadge = hasDirectional
+    ? `${data?.products.filter((p) => p.trend_direction === "rising" || p.trend_direction === "spiking").length} rising`
+    : `${data?.count ?? 0} scored`;
+
   return (
     <div>
       <div className="flex items-center gap-2 mb-3">
         <TrendingUp className="w-4 h-4 text-green-600" />
-        <h2 className="text-sm font-semibold text-gray-800">Trending Products</h2>
+        <h2 className="text-sm font-semibold text-gray-800">{sectionLabel}</h2>
         {data && data.count > 0 && (
           <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-            {data.count} rising
+            {countBadge}
+          </span>
+        )}
+        {!hasDirectional && data && data.count > 0 && (
+          <span className="text-xs text-gray-400 ml-1">
+            (direction available after 7 days of history)
           </span>
         )}
       </div>

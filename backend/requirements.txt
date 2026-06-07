@@ -27,6 +27,7 @@ python-dotenv==1.0.1
 pandas==2.2.2
 numpy==1.26.4
 pytrends==4.9.2
+urllib3<2.0.0
 
 # ── AI / LLM ───────────────────────────────────────────────
 anthropic==0.28.0
