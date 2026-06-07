@@ -34,10 +34,6 @@ RSS_FEEDS = {
     "toys": "https://www.hotukdeals.com/rss/deals?catid=toys",
     "gaming": "https://www.hotukdeals.com/rss/deals?catid=gaming",
     "tech": "https://www.hotukdeals.com/rss/deals?catid=technology",
-    "home": "https://www.hotukdeals.com/rss/deals?catid=home-garden",
-    "fashion": "https://www.hotukdeals.com/rss/deals?catid=fashion",
-    "beauty": "https://www.hotukdeals.com/rss/deals?catid=beauty",
-    "sports": "https://www.hotukdeals.com/rss/deals?catid=sports-outdoors",
 }
 
 
