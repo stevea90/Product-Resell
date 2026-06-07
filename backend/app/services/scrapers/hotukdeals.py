@@ -144,7 +144,21 @@ class HotUKDealsScraper(BaseScraper):
             try:
                 self.logger.info("fetching_rss_feed", feed=feed_name)
                 response = await self._get(feed_url)
-                deals = self._parse_rss_feed(response.text, feed_name)
+
+                # Guard: if we got HTML instead of XML (rate-limited / challenge page), skip
+                content_type = response.headers.get("content-type", "")
+                text = response.text.lstrip()
+                if not text.startswith("<") or "<!DOCTYPE" in text[:100] or "text/html" in content_type:
+                    self.logger.warning(
+                        "rss_non_xml_response",
+                        feed=feed_name,
+                        content_type=content_type,
+                        preview=repr(text[:120]),
+                    )
+                    await asyncio.sleep(5)
+                    continue
+
+                deals = self._parse_rss_feed(text, feed_name)
 
                 for deal in deals:
                     if deal.source_url not in seen_urls:
@@ -157,6 +171,8 @@ class HotUKDealsScraper(BaseScraper):
                     deals_found=len(deals),
                     deals_kept=len(deals),
                 )
+                # Polite pause between feeds to avoid triggering rate limits
+                await asyncio.sleep(2)
             except Exception as exc:
                 self.logger.error("rss_feed_error", feed=feed_name, error=str(exc))
 
