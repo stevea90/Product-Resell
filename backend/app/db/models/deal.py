@@ -32,6 +32,15 @@ class DealSource(str, enum.Enum):
     SMYTHS = "smyths"
     ARGOS = "argos"
     CURRYS = "currys"
+    VERY = "very"
+    LEGO_SHOP = "lego_shop"
+    BOX = "box"
+    EBUYER = "ebuyer"
+    BOOTS = "boots"
+    COSTCO = "costco"
+    TKMAXX = "tkmaxx"
+    BM = "bm"
+    HOMEBARGAINS = "homebargains"
     MANUAL = "manual"
 
 
@@ -40,6 +49,14 @@ class DealCategory(str, enum.Enum):
     LEGO = "lego"
     GAMING = "gaming"
     ELECTRONICS = "electronics"
+    HOME = "home"
+    BEAUTY = "beauty"
+    SPORTS = "sports"
+    FASHION = "fashion"
+    GARDEN = "garden"
+    HEALTH = "health"
+    PETS = "pets"
+    BOOKS = "books"
     OTHER = "other"
 
 

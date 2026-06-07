@@ -3,7 +3,6 @@ Scraping Celery tasks.
 Each task runs a scraper, persists results, then triggers enrichment.
 """
 import asyncio
-from datetime import datetime
 
 from app.core.logging import get_logger
 from app.db.database import get_db_context
@@ -25,6 +24,23 @@ def _run_async(coro):
 
 
 @celery_app.task(
+    name="app.workers.scraping_tasks.scrape_source_task",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60,
+    soft_time_limit=300,
+)
+def scrape_source_task(self, source_name: str):
+    """Scrape a single named source, persist new deals, queue enrichment."""
+    logger.info("scrape_task_started", source=source_name, task_id=self.request.id)
+    try:
+        _run_async(_scrape_and_save(source_name))
+    except Exception as exc:
+        logger.error("scrape_task_failed", source=source_name, error=str(exc))
+        raise self.retry(exc=exc)
+
+
+@celery_app.task(
     name="app.workers.scraping_tasks.scrape_hotukdeals_task",
     bind=True,
     max_retries=3,
@@ -32,16 +48,8 @@ def _run_async(coro):
     soft_time_limit=300,
 )
 def scrape_hotukdeals_task(self):
-    """
-    Scrape HotUKDeals RSS feeds, persist new deals, queue enrichment.
-    Retries up to 3 times on failure with 60-second delay.
-    """
-    logger.info("scrape_task_started", source="hotukdeals", task_id=self.request.id)
-    try:
-        _run_async(_scrape_and_save("hotukdeals"))
-    except Exception as exc:
-        logger.error("scrape_task_failed", source="hotukdeals", error=str(exc))
-        raise self.retry(exc=exc)
+    """Legacy entry point kept for beat schedule compatibility."""
+    scrape_source_task.apply_async(args=["hotukdeals"])
 
 
 @celery_app.task(
@@ -51,9 +59,7 @@ def scrape_hotukdeals_task(self):
 def scrape_all_task(self):
     """Trigger scraping for all registered sources."""
     for source_name in SCRAPER_REGISTRY:
-        celery_app.send_task(
-            f"app.workers.scraping_tasks.scrape_{source_name}_task",
-        )
+        scrape_source_task.apply_async(args=[source_name], queue="scraping")
 
 
 async def _scrape_and_save(source_name: str) -> None:
@@ -88,7 +94,6 @@ async def _scrape_and_save(source_name: str) -> None:
         duplicates=dup_count,
     )
 
-    # Queue enrichment for new deals
     if new_count > 0:
         from app.workers.enrichment_tasks import enrich_pending_deals_task
         enrich_pending_deals_task.apply_async(countdown=5)

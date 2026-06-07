@@ -8,9 +8,6 @@ Strategy:
 HotUKDeals is a community deal site. Their temperature/hot score and comment
 count are strong demand-signal proxies — high temperature = proven community
 interest, which correlates with sellable products.
-
-Category detection is applied via keyword matching on the title to route deals
-into our target niches (toys, LEGO, gaming, electronics).
 """
 import re
 import xml.etree.ElementTree as ET
@@ -22,30 +19,9 @@ from parsel import Selector
 
 from app.core.logging import get_logger
 from app.services.scrapers.base import BaseScraper, ScrapedDeal
+from app.services.scrapers.utils import detect_category
 
 logger = get_logger(__name__)
-
-# Category detection keyword map — order matters (most specific first)
-CATEGORY_KEYWORDS: dict[str, list[str]] = {
-    "lego": [
-        "lego", "lego technic", "lego star wars", "lego city",
-        "lego creator", "lego friends", "lego harry potter",
-    ],
-    "gaming": [
-        "playstation", "ps5", "ps4", "xbox", "nintendo switch",
-        "game", "gaming", "steam deck", "controller", "console",
-        "pokemon", "zelda", "mario",
-    ],
-    "toys": [
-        "toy", "nerf", "barbie", "hot wheels", "action figure",
-        "playset", "smyths", "funko", "plush", "doll",
-    ],
-    "electronics": [
-        "laptop", "tablet", "ipad", "iphone", "samsung", "tv",
-        "monitor", "headphone", "earbuds", "airpods", "speaker",
-        "camera", "drone", "apple", "sony", "lg",
-    ],
-}
 
 # Target minimum hot score — below this, deal is unlikely to be worth analysing
 MIN_HOT_SCORE = 100
@@ -58,15 +34,13 @@ RSS_FEEDS = {
     "toys": "https://www.hotukdeals.com/rss/deals?catid=toys",
     "gaming": "https://www.hotukdeals.com/rss/deals?catid=gaming",
     "tech": "https://www.hotukdeals.com/rss/deals?catid=technology",
+    "home": "https://www.hotukdeals.com/rss/deals?catid=home-garden",
+    "fashion": "https://www.hotukdeals.com/rss/deals?catid=fashion",
+    "beauty": "https://www.hotukdeals.com/rss/deals?catid=beauty",
+    "sports": "https://www.hotukdeals.com/rss/deals?catid=sports-outdoors",
 }
 
 
-def _detect_category(title: str) -> str:
-    lower = title.lower()
-    for category, keywords in CATEGORY_KEYWORDS.items():
-        if any(kw in lower for kw in keywords):
-            return category
-    return "other"
 
 
 def _extract_price(text: Optional[str]) -> Optional[float]:
@@ -132,7 +106,7 @@ def _parse_rss_item(item: ET.Element, ns: dict) -> Optional[ScrapedDeal]:
         if deal_price and original_price and original_price > deal_price:
             discount_percent = round((1 - deal_price / original_price) * 100, 1)
 
-        category = _detect_category(title)
+        category = detect_category(title)
         source_id = re.search(r"/(\d+)", guid or link)
 
         return ScrapedDeal(
@@ -178,24 +152,25 @@ class HotUKDealsScraper(BaseScraper):
 
                 for deal in deals:
                     if deal.source_url not in seen_urls:
-                        # Only keep target categories
-                        if deal.category != "other":
-                            seen_urls.add(deal.source_url)
-                            all_deals.append(deal)
+                        seen_urls.add(deal.source_url)
+                        all_deals.append(deal)
 
                 self.logger.info(
                     "rss_feed_parsed",
                     feed=feed_name,
                     deals_found=len(deals),
-                    deals_kept=sum(1 for d in deals if d.category != "other"),
+                    deals_kept=len(deals),
                 )
             except Exception as exc:
                 self.logger.error("rss_feed_error", feed=feed_name, error=str(exc))
 
+        category_counts = {}
+        for d in all_deals:
+            category_counts[d.category] = category_counts.get(d.category, 0) + 1
         self.logger.info(
             "hotukdeals_scrape_done",
             total_deals=len(all_deals),
-            categories={c: sum(1 for d in all_deals if d.category == c) for c in CATEGORY_KEYWORDS},
+            categories=category_counts,
         )
         return all_deals
 
@@ -271,7 +246,7 @@ class HotUKDealsScraper(BaseScraper):
                     discount_percent=discount_percent,
                     currency="GBP",
                     image_url=image,
-                    category=_detect_category(title),
+                    category=detect_category(title),
                     hot_score=hot_score,
                     comment_count=comment_count,
                 ))

@@ -41,8 +41,8 @@ celery_app.conf.update(
         "app.workers.scoring_tasks.*": {"queue": "scoring"},
     },
     beat_schedule={
-        "scrape-hotukdeals": {
-            "task": "app.workers.scraping_tasks.scrape_hotukdeals_task",
+        "scrape-all-sources": {
+            "task": "app.workers.scraping_tasks.scrape_all_task",
             "schedule": 1800,  # Every 30 minutes
             "options": {"queue": "scraping"},
         },
