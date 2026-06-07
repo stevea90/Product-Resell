@@ -9,6 +9,7 @@ HotUKDeals is a community deal site. Their temperature/hot score and comment
 count are strong demand-signal proxies — high temperature = proven community
 interest, which correlates with sellable products.
 """
+import asyncio
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
